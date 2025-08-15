@@ -24,7 +24,9 @@ jobs:
         env:
           SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
           ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
-        run: python linkwise_feed.py
+        run: |
+          python linkwise_feed.py
+          mv feed.xml linkwise.xml
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
@@ -33,3 +35,4 @@ jobs:
           publish_dir: ./
           publish_branch: gh-pages
           keep_files: true
+
