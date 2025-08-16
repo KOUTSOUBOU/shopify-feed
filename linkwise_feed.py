@@ -6,14 +6,14 @@ import re
 import os
 
 # ====== CONFIG ======
-SHOPIFY_STORE = os.environ.get("SHOPIFY_STORE", "")          # e.g. "yourstore.myshopify.com"
-API_VERSION   = os.environ.get("SHOPIFY_API_VERSION", "2024-10")
-ACCESS_TOKEN  = os.environ.get("SHOPIFY_ADMIN_TOKEN", "")
+SHOPIFY_STORE   = os.environ.get("SHOPIFY_STORE", "")          # e.g. "yourstore.myshopify.com"
+API_VERSION     = os.environ.get("SHOPIFY_API_VERSION", "2024-10")
+ACCESS_TOKEN    = os.environ.get("SHOPIFY_ADMIN_TOKEN", "")
+
 HEADERS = {
     "X-Shopify-Access-Token": ACCESS_TOKEN,
     "Content-Type": "application/json",
 }
-=
 
 # ===== HELPERS =====
 def xml_escape(text):
