@@ -5,15 +5,15 @@ import html
 import re
 import os
 
-# ===== CONFIG FROM ENV =====
-SHOPIFY_STORE = os.getenv("SHOPIFY_STORE")  # e.g., ethospassion.myshopify.com
-API_VERSION = "2025-01"
-ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
-
+# ====== CONFIG ======
+SHOPIFY_STORE = os.environ.get("SHOPIFY_STORE", "")          # e.g. "yourstore.myshopify.com"
+API_VERSION   = os.environ.get("SHOPIFY_API_VERSION", "2024-10")
+ACCESS_TOKEN  = os.environ.get("SHOPIFY_ADMIN_TOKEN", "")
 HEADERS = {
     "X-Shopify-Access-Token": ACCESS_TOKEN,
-    "Content-Type": "application/json"
+    "Content-Type": "application/json",
 }
+=
 
 # ===== HELPERS =====
 def xml_escape(text):
