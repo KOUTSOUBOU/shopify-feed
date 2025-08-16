@@ -1,38 +1,55 @@
-name: Update Shopify Feed
+name: Update Linkwise Feed
 
 on:
+  workflow_dispatch:
   schedule:
-    - cron: '0 3 * * *'   # Runs every day at 03:00 UTC
-  workflow_dispatch:       # Allow manual trigger
+    - cron: "0 */6 * * *"   # every 6 hours
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: "3.11"
 
-      - name: Install dependencies
+      - name: Install deps
         run: pip install requests
 
-      - name: Run feed generator
+      - name: Generate feed.xml
         env:
           SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
-          ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
+          SHOPIFY_ADMIN_TOKEN: ${{ secrets.SHOPIFY_ADMIN_TOKEN }}
+          SHOPIFY_API_VERSION: ${{ secrets.SHOPIFY_API_VERSION }}
         run: |
           python linkwise_feed.py
-          mv feed.xml linkwise.xml
+          test -f feed.xml && echo "feed.xml created" || (echo "feed.xml missing" && exit 2)
 
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
+      # Publish via GitHub Pages (artifact -> deploy)
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./
-          publish_branch: gh-pages
-          keep_files: true
+          path: .
+          # We only need feed.xml; keep it small by uploading just that file:
+          if-no-files-found: error
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
 
