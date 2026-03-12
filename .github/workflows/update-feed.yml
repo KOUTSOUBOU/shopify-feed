@@ -1,4 +1,4 @@
-name: Update Linkwise Feed
+name: Update Product Feed (Linkwise + Wolt)
 
 on:
   workflow_dispatch:
@@ -34,13 +34,16 @@ jobs:
           python linkwise_feed.py
           test -f feed.xml && echo "feed.xml created" || (echo "feed.xml missing" && exit 2)
 
-      # Publish via GitHub Pages (artifact -> deploy)
+      # Deploy only feed.xml via GitHub Pages
+      - name: Prepare deploy directory
+        run: |
+          mkdir -p _deploy
+          cp feed.xml _deploy/feed.xml
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: .
-          # We only need feed.xml; keep it small by uploading just that file:
-          if-no-files-found: error
+          path: _deploy
 
   deploy:
     needs: build
@@ -52,6 +55,4 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-
-
 
