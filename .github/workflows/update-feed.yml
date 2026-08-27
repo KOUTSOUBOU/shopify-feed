@@ -1,49 +1,53 @@
 name: Update Product Feed (Linkwise + Wolt)
 
 on:
-  workflow_dispatch:
   schedule:
-    - cron: "0 */6 * * *"   # every 6 hours
+    - cron: '0 */3 * * *'     # κάθε 3 ώρες (UTC)
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   pages: write
   id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
-          python-version: "3.11"
+          python-version: '3.12'
 
-      - name: Install deps
-        run: pip install requests
+      - run: pip install requests
 
-      - name: Generate feed.xml
+      - name: Generate feed
         env:
           SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
           SHOPIFY_ADMIN_TOKEN: ${{ secrets.SHOPIFY_ADMIN_TOKEN }}
-          SHOPIFY_API_VERSION: ${{ secrets.SHOPIFY_API_VERSION }}
+          SHOPIFY_API_VERSION: '2024-10'
         run: |
+          rm -rf site
+          mkdir -p site
           python linkwise_feed.py
-          test -f feed.xml && echo "feed.xml created" || (echo "feed.xml missing" && exit 2)
+          mv feed.xml site/feed.xml
 
-      # Deploy only feed.xml via GitHub Pages
-      - name: Prepare deploy directory
+      - name: Verify feed is fresh
         run: |
-          mkdir -p _deploy
-          cp feed.xml _deploy/feed.xml
+          head -3 site/feed.xml
+          echo "Products: $(grep -c '<product>' site/feed.xml)"
+          TODAY=$(date -u +%Y-%m-%d)
+          grep -q "<created_at>$TODAY" site/feed.xml \
+            || { echo "::error::Το feed δεν έχει σημερινή ημερομηνία"; exit 1; }
 
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v3
         with:
-          path: _deploy
+          path: site
 
   deploy:
     needs: build
@@ -52,7 +56,6 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
+      - id: deployment
         uses: actions/deploy-pages@v4
 
