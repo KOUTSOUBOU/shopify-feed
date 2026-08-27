@@ -2,11 +2,11 @@ name: Update Product Feed (Linkwise + Wolt)
 
 on:
   schedule:
-    - cron: '0 */3 * * *'     # κάθε 3 ώρες (UTC)
+    - cron: '0 */3 * * *'
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -18,11 +18,11 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.11'
 
       - run: pip install requests
 
@@ -31,23 +31,34 @@ jobs:
           SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
           SHOPIFY_ADMIN_TOKEN: ${{ secrets.SHOPIFY_ADMIN_TOKEN }}
           SHOPIFY_API_VERSION: '2024-10'
-        run: |
-          rm -rf site
-          mkdir -p site
-          python linkwise_feed.py
-          mv feed.xml site/feed.xml
+        run: python linkwise_feed.py
 
       - name: Verify feed is fresh
         run: |
-          head -3 site/feed.xml
-          echo "Products: $(grep -c '<product>' site/feed.xml)"
-          TODAY=$(date -u +%Y-%m-%d)
-          grep -q "<created_at>$TODAY" site/feed.xml \
+          head -3 feed.xml
+          COUNT=$(grep -c '<product>' feed.xml)
+          echo "Products: $COUNT"
+          [ "$COUNT" -ge 50 ] || { echo "::error::Πολύ λίγα προϊόντα ($COUNT)"; exit 1; }
+          grep -q "<created_at>$(date -u +%Y-%m-%d)" feed.xml \
             || { echo "::error::Το feed δεν έχει σημερινή ημερομηνία"; exit 1; }
+
+      - name: Commit feed (keeps cron alive)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f feed.xml
+          git diff --staged --quiet || git commit -m "Feed $(date -u +'%Y-%m-%d %H:%M')"
+          git push
+
+      - name: Prepare deploy directory
+        run: |
+          rm -rf _deploy
+          mkdir -p _deploy
+          cp feed.xml _deploy/feed.xml
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: site
+          path: _deploy
 
   deploy:
     needs: build
