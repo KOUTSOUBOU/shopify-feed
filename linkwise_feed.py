@@ -4,11 +4,13 @@ from decimal import Decimal, InvalidOperation
 import html
 import re
 import os
+import sys
 
 # ====== CONFIG ======
-SHOPIFY_STORE   = os.environ.get("SHOPIFY_STORE", "")          # e.g. "yourstore.myshopify.com"
-API_VERSION     = os.environ.get("SHOPIFY_API_VERSION", "2024-10")
-ACCESS_TOKEN    = os.environ.get("SHOPIFY_ADMIN_TOKEN", "")
+SHOPIFY_STORE = os.environ.get("SHOPIFY_STORE", "").strip()
+# .strip() or "..." ώστε ένα κενό env var να πέφτει στο default αντί για ""
+API_VERSION = os.environ.get("SHOPIFY_API_VERSION", "").strip() or "2024-10"
+ACCESS_TOKEN = os.environ.get("SHOPIFY_ADMIN_TOKEN", "").strip()
 
 HEADERS = {
     "X-Shopify-Access-Token": ACCESS_TOKEN,
@@ -30,9 +32,13 @@ DESCRIPTION_MAX_LENGTH = 1000
 # Product types to EXCLUDE from the feed
 EXCLUDED_PRODUCT_TYPES = {"Gift cards"}
 
+# Valid GTIN lengths (EAN-8, UPC-A, EAN-13, GTIN-14)
+VALID_BARCODE_LENGTHS = {8, 12, 13, 14}
+
+
 # ===== HELPERS =====
 def xml_escape(text):
-    """Escape special XML characters."""
+    """Escape special XML characters. ΜΗΝ το χρησιμοποιείς για περιεχόμενο CDATA."""
     if text is None:
         return ""
     return (
@@ -44,20 +50,41 @@ def xml_escape(text):
         .replace("'", "&apos;")
     )
 
-def clean_text(text):
-    """Remove HTML tags, unescape HTML entities, and escape XML special chars."""
+
+def clean_text(text, escape=True):
+    """Remove HTML tags, unescape HTML entities, collapse whitespace.
+
+    escape=True  -> για περιεχόμενο που μπαίνει σκέτο σε tag (π.χ. <mpn>)
+    escape=False -> για περιεχόμενο που μπαίνει σε CDATA. Το CDATA δεν
+                    χρειάζεται escaping, και αν το κάνεις ο καταναλωτής
+                    του feed βλέπει κυριολεκτικά "&amp;" μέσα στο κείμενο.
+    """
     if not text:
         return ""
-    clean = re.sub(r"<[^>]+>", " ", text)           # replace tags with space
+    clean = re.sub(r"<[^>]+>", " ", text)      # replace tags with space
     clean = html.unescape(clean).strip()
-    clean = re.sub(r"\s+", " ", clean)               # collapse whitespace
-    return xml_escape(clean)
+    clean = re.sub(r"\s+", " ", clean)          # collapse whitespace
+    # Το "]]>" θα έσπαγε το CDATA block
+    clean = clean.replace("]]>", "]] >")
+    return xml_escape(clean) if escape else clean
+
 
 def clean_barcode(barcode):
-    """Strip leading apostrophes and whitespace from barcodes."""
+    """Κρατά μόνο έγκυρα GTIN.
+
+    Καθαρίζει αποστρόφους, κενά και suffix τύπου "(EAN-13)".
+    Επιστρέφει "" αν αυτό που μένει δεν είναι έγκυρο barcode
+    (π.χ. όταν στο πεδίο barcode έχει μπει κατά λάθος το SKU).
+    """
     if not barcode:
         return ""
-    return barcode.strip().lstrip("'").strip()
+    text = str(barcode)
+    # Πρώτα πετάμε σχόλια σε παρένθεση, π.χ. "4024144673971 (EAN-13)".
+    # Αλλιώς το "13" του "EAN-13" θα κολλούσε στα ψηφία του barcode.
+    text = re.sub(r"\([^)]*\)", " ", text)
+    digits = re.sub(r"\D", "", text)
+    return digits if len(digits) in VALID_BARCODE_LENGTHS else ""
+
 
 def format_price(val):
     """Format price with exactly 2 decimals (both platforms expect this)."""
@@ -68,6 +95,7 @@ def format_price(val):
         return f"{dec:.2f}"
     except (InvalidOperation, ValueError):
         return ""
+
 
 def calc_discount(price_str, full_price_str):
     """Calculate percentage discount with up to 2 decimal places."""
@@ -81,9 +109,11 @@ def calc_discount(price_str, full_price_str):
         pass
     return "0"
 
+
 def cdata(text):
     """Wrap text in CDATA section."""
     return f"<![CDATA[{text}]]>"
+
 
 def truncate(text, max_len):
     """Truncate text to max_len characters."""
@@ -91,16 +121,23 @@ def truncate(text, max_len):
         return text
     return text[:max_len - 3] + "..."
 
+
 # ===== FETCH PRODUCTS =====
 def get_products():
     """Fetch only ACTIVE products from Shopify Admin API."""
+    if not SHOPIFY_STORE or not ACCESS_TOKEN:
+        raise SystemExit(
+            "ERROR: λείπει SHOPIFY_STORE ή SHOPIFY_ADMIN_TOKEN. "
+            "Έλεγξε τα secrets του repository."
+        )
+
     all_products = []
     url = (
         f"https://{SHOPIFY_STORE}/admin/api/{API_VERSION}"
         f"/products.json?limit=250&status=active"
     )
     while url:
-        r = requests.get(url, headers=HEADERS)
+        r = requests.get(url, headers=HEADERS, timeout=60)
         r.raise_for_status()
         data = r.json()
         all_products.extend(data.get("products", []))
@@ -115,14 +152,25 @@ def get_products():
         url = next_url
     return all_products
 
+
 # ===== BUILD XML =====
 def build_xml(products):
     lines = []
+    stats = {
+        "written": 0,
+        "skipped_type": 0,
+        "skipped_unpublished": 0,
+        "skipped_no_stock": 0,
+        "skipped_no_identifier": 0,
+        "dropped_barcode": 0,
+    }
 
     # --- XML declaration (required by Skroutz) ---
     lines.append('<?xml version="1.0" encoding="UTF-8"?>')
     lines.append("<mywebstore>")
-    lines.append(f"<created_at>{datetime.now().strftime('%Y-%m-%d %H:%M')}</created_at>")
+    lines.append(
+        f"<created_at>{datetime.now().strftime('%Y-%m-%d %H:%M')}</created_at>"
+    )
     lines.append("<products>")
 
     for p in products:
@@ -130,6 +178,14 @@ def build_xml(products):
 
         # --- Skip excluded product types (e.g. Gift cards) ---
         if product_type in EXCLUDED_PRODUCT_TYPES:
+            stats["skipped_type"] += len(p.get("variants", []))
+            continue
+
+        # --- Skip products not published to the Online Store ---
+        # status=active ΔΕΝ σημαίνει δημοσιευμένο: ένα προϊόν μπορεί να είναι
+        # active αλλά αποσυνδεδεμένο από το κανάλι Online Store.
+        if not p.get("published_at"):
+            stats["skipped_unpublished"] += len(p.get("variants", []))
             continue
 
         # --- Determine option structure for Color ---
@@ -141,21 +197,38 @@ def build_xml(products):
                 break
 
         # --- Pre-compute description (shared by all variants of this product) ---
-        raw_desc = clean_text(p.get("body_html") or "")
+        raw_desc = clean_text(p.get("body_html") or "", escape=False)
         if not raw_desc:
-            raw_desc = clean_text(p.get("title") or "")
+            raw_desc = clean_text(p.get("title") or "", escape=False)
         desc_text = truncate(raw_desc, DESCRIPTION_MAX_LENGTH)
 
         # --- Pre-compute category ---
         category = product_type if product_type else "Uncategorized"
 
         # --- Pre-compute manufacturer ---
-        manufacturer = clean_text(p.get("vendor") or "") or "OEM"
+        manufacturer = clean_text(p.get("vendor") or "", escape=False) or "OEM"
 
         for v in p.get("variants", []):
             qty = v.get("inventory_quantity", 0)
             if qty <= 0:
+                stats["skipped_no_stock"] += 1
                 continue  # skip out-of-stock
+
+            # ---- Identifiers ----
+            mpn = clean_text(v.get("sku") or "")
+            raw_barcode = v.get("barcode") or ""
+            barcode = clean_barcode(raw_barcode)
+            if raw_barcode and not barcode:
+                stats["dropped_barcode"] += 1
+
+            # Skroutz/Linkwise θέλουν τουλάχιστον ένα αναγνωριστικό
+            if not mpn and not barcode:
+                stats["skipped_no_identifier"] += 1
+                print(
+                    f"  WARNING: παραλείφθηκε '{p.get('title')}' "
+                    f"(variant {v['id']}) — χωρίς SKU και χωρίς barcode"
+                )
+                continue
 
             lines.append("<product>")
 
@@ -168,7 +241,7 @@ def build_xml(products):
                 name_text = f"{p['title']} {v['title']}"
             else:
                 name_text = p["title"]
-            lines.append(f"<name>{cdata(clean_text(name_text))}</name>")
+            lines.append(f"<name>{cdata(clean_text(name_text, escape=False))}</name>")
 
             # ---- Product Link ----
             product_link = f"{STORE_DOMAIN}/products/{p['handle']}?variant={v['id']}"
@@ -198,7 +271,9 @@ def build_xml(products):
                 lines.append("</additionalimage>")
                 # Skroutz format: separate <additional_imageurl> tags
                 for img_url in additional_images[:15]:
-                    lines.append(f"<additional_imageurl>{cdata(img_url)}</additional_imageurl>")
+                    lines.append(
+                        f"<additional_imageurl>{cdata(img_url)}</additional_imageurl>"
+                    )
             else:
                 lines.append("<additionalimage/>")
 
@@ -234,12 +309,10 @@ def build_xml(products):
             lines.append(f"<manufacturer>{cdata(manufacturer)}</manufacturer>")
 
             # ---- MPN (SKU) ----
-            mpn = clean_text(v.get("sku") or "")
             lines.append(f"<mpn>{mpn}</mpn>")
 
             # ---- EAN / Barcode ----
-            barcode = clean_barcode(v.get("barcode") or "")
-            lines.append(f"<ean>{xml_escape(barcode)}</ean>")
+            lines.append(f"<ean>{barcode}</ean>")
 
             # ---- In Stock ----
             lines.append("<instock>Y</instock>")
@@ -269,17 +342,34 @@ def build_xml(products):
             lines.append("<shipping>0</shipping>")
 
             lines.append("</product>")
+            stats["written"] += 1
 
     lines.append("</products>")
     lines.append("</mywebstore>")
-    return "\n".join(lines)
+    return "\n".join(lines), stats
+
 
 # ===== MAIN =====
 if __name__ == "__main__":
-    print("Fetching products from Shopify...")
+    print(f"Fetching products from Shopify (API {API_VERSION})...")
     products = get_products()
     print(f"Fetched {len(products)} products.")
-    xml_output = build_xml(products)
+
+    xml_output, stats = build_xml(products)
+
     with open("feed.xml", "w", encoding="utf-8") as f:
         f.write(xml_output)
+
+    print("\n--- Feed summary ---")
+    print(f"  Γράφτηκαν στο feed:        {stats['written']}")
+    print(f"  Χωρίς απόθεμα:             {stats['skipped_no_stock']}")
+    print(f"  Μη δημοσιευμένα:           {stats['skipped_unpublished']}")
+    print(f"  Εξαιρούμενος τύπος:        {stats['skipped_type']}")
+    print(f"  Χωρίς SKU/barcode:         {stats['skipped_no_identifier']}")
+    print(f"  Άκυρα barcode που κόπηκαν: {stats['dropped_barcode']}")
     print("Feed generated: feed.xml")
+
+    # Δίχτυ ασφαλείας: άδειο ή σχεδόν άδειο feed είναι σφάλμα, όχι επιτυχία
+    if stats["written"] == 0:
+        print("ERROR: το feed δεν περιέχει κανένα προϊόν.", file=sys.stderr)
+        sys.exit(1)
