@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <mywebstore>
-<created_at>2026-08-28 18:19</created_at>
+<created_at>2026-08-29 03:06</created_at>
 <products>
 <product>
 <id>44650261545226</id>
@@ -1912,9 +1912,9 @@
 <image><![CDATA[https://cdn.shopify.com/s/files/1/0656/7729/5882/files/hjfjh_533d460b-8d7d-485f-81ab-2c8c6894f965.png?v=1741719771]]></image>
 <additionalimage/>
 <category><![CDATA[Προφυλακτικά]]></category>
-<price>14.99</price>
+<price>15.99</price>
 <full_price>18.99</full_price>
-<discount>21.06</discount>
+<discount>15.80</discount>
 <vat>24.00</vat>
 <manufacturer><![CDATA[SKYN]]></manufacturer>
 <mpn>04117950000</mpn>
