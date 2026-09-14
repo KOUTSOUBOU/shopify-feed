@@ -28,7 +28,7 @@ DEFAULT_VAT_RATE = "24.00"
 # Padding εικόνων: τις φέρνει στην αναλογία της κάρτας της Wolt (16:9),
 # γεμίζοντας το κενό με το χρώμα φόντου αντί για λευκό.
 # Βάλε "" στο IMAGE_PAD_COLOR για να απενεργοποιηθεί.
-IMAGE_PAD_COLOR = "e3cdff"   # hex χωρίς #
+IMAGE_PAD_COLOR = "e3cfff"   # hex χωρίς #
 IMAGE_PAD_W = 1200
 IMAGE_PAD_H = 675
 
