@@ -25,11 +25,12 @@ STORE_DOMAIN = "https://www.ethospassion.com"
 # Default VAT rate (%) — Greece standard rate
 DEFAULT_VAT_RATE = "24.00"
 
-# Padding εικόνων: τις κάνει τετράγωνες γεμίζοντας το κενό με το χρώμα
-# φόντου, αντί για το λευκό που βάζει από μόνη της η Wolt.
+# Padding εικόνων: τις φέρνει στην αναλογία της κάρτας της Wolt (16:9),
+# γεμίζοντας το κενό με το χρώμα φόντου αντί για λευκό.
 # Βάλε "" στο IMAGE_PAD_COLOR για να απενεργοποιηθεί.
-IMAGE_PAD_COLOR = "e9ddfb"   # hex χωρίς #
-IMAGE_PAD_SIZE = 1200
+IMAGE_PAD_COLOR = "e3cdff"   # hex χωρίς #
+IMAGE_PAD_W = 1200
+IMAGE_PAD_H = 675
 
 # Greek availability string (satisfies both Linkwise & Skroutz)
 AVAILABILITY_TEXT = "Παράδοση σε 1-3 ημέρες"
@@ -182,8 +183,8 @@ def pad_image(url):
         return url
     parts = urlparse(url)
     q = dict(parse_qsl(parts.query))
-    q["width"] = IMAGE_PAD_SIZE
-    q["height"] = IMAGE_PAD_SIZE
+    q["width"] = IMAGE_PAD_W
+    q["height"] = IMAGE_PAD_H
     q["pad_color"] = IMAGE_PAD_COLOR
     return urlunparse(parts._replace(query=urlencode(q)))
 
