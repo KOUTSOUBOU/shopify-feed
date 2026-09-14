@@ -398,12 +398,15 @@ def build_xml(products, collection_map):
             if additional_images:
                 lines.append("<additionalimage>")
                 for idx, img_url in enumerate(additional_images[:10], start=1):
-                    lines.append(f"<image{idx}>{cdata(img_url)}</image{idx}>")
+                    lines.append(
+                        f"<image{idx}>{cdata(pad_image(img_url))}</image{idx}>"
+                    )
                 lines.append("</additionalimage>")
                 # Skroutz format: separate <additional_imageurl> tags
                 for img_url in additional_images[:15]:
                     lines.append(
-                        f"<additional_imageurl>{cdata(img_url)}</additional_imageurl>"
+                        f"<additional_imageurl>{cdata(pad_image(img_url))}"
+                        f"</additional_imageurl>"
                     )
             else:
                 lines.append("<additionalimage/>")
